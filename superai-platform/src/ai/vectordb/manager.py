@@ -118,6 +118,52 @@ class VectorDBManager:
         collections = client.list_collections()
         return [{"name": c.name, "count": c.count(), "metadata": c.metadata} for c in collections]
 
+    async def add_documents(
+        self,
+        collection_name: str,
+        documents: list[str],
+        metadatas: list[dict[str, Any]] | None = None,
+        ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Add documents to a collection (convenience wrapper around upsert)."""
+        return await self.upsert(
+            collection=collection_name,
+            documents=documents,
+            metadata=metadatas or [],
+            ids=ids or [],
+        )
+
+    async def semantic_search(
+        self,
+        collection_name: str,
+        query: str,
+        top_k: int = 10,
+        threshold: float = 0.0,
+        filter: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Semantic search with optional similarity threshold filtering.
+
+        Args:
+            collection_name: Name of the vector collection.
+            query: Natural-language query string.
+            top_k: Maximum number of results to return.
+            threshold: Minimum similarity score (0-1). Results below this are dropped.
+            filter: Optional metadata filter dict passed to ChromaDB ``where``.
+        """
+        result = await self.search(
+            collection=collection_name,
+            query=query,
+            top_k=top_k,
+            filter=filter,
+        )
+        if threshold > 0.0 and "results" in result:
+            result["results"] = [
+                r for r in result["results"]
+                if r.get("similarity", 0.0) >= threshold
+            ]
+            result["total_results"] = len(result["results"])
+        return result
+
     async def delete_collection(self, collection: str) -> None:
         client = self._get_client()
         client.delete_collection(name=collection)

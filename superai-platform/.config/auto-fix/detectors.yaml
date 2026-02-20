@@ -1,0 +1,131 @@
+# Auto-Fix Bot - Issue Detectors Configuration
+# Defines how to detect various types of issues in the codebase
+
+version: "1.0"
+
+detectors:
+  python_lint:
+    name: "Python Lint Check"
+    tool: "ruff"
+    command: "ruff check src/ tests/ --output-format json"
+    schedule: "on_pr"
+    patterns:
+      - "*.py"
+    severity_mapping:
+      E: "error"
+      W: "warning"
+      F: "error"
+      I: "info"
+      S: "security"
+
+  python_format:
+    name: "Python Format Check"
+    tool: "ruff"
+    command: "ruff format --check --diff src/ tests/"
+    schedule: "on_pr"
+    patterns:
+      - "*.py"
+
+  type_check:
+    name: "Type Safety Check"
+    tool: "mypy"
+    command: "mypy src/ --ignore-missing-imports"
+    schedule: "on_pr"
+    patterns:
+      - "*.py"
+
+  security_scan:
+    name: "Security Vulnerability Scan"
+    tool: "bandit"
+    command: "bandit -r src/ -f json -ll"
+    schedule: "on_pr"
+    patterns:
+      - "*.py"
+
+  dependency_audit:
+    name: "Dependency Audit"
+    tool: "safety"
+    command: "safety check --json"
+    schedule: "weekly"
+
+  dockerfile_lint:
+    name: "Dockerfile Lint"
+    tool: "hadolint"
+    command: "hadolint Dockerfile.prod Dockerfile.dev --format json"
+    schedule: "on_pr"
+    patterns:
+      - "Dockerfile*"
+
+  yaml_lint:
+    name: "YAML Lint"
+    tool: "yamllint"
+    command: "yamllint -f parsable k8s/ helm/ .github/"
+    schedule: "on_pr"
+    patterns:
+      - "*.yaml"
+      - "*.yml"
+
+  k8s_naming:
+    name: "K8s Naming Convention Check"
+    tool: "conftest"
+    command: "conftest test k8s/ -p .config/conftest/policies/ --output json"
+    schedule: "on_pr"
+    patterns:
+      - "k8s/**/*.yaml"
+      - "helm/**/*.yaml"
+
+  k8s_security:
+    name: "K8s Security Best Practices"
+    tool: "checkov"
+    command: "checkov -d k8s/ --framework kubernetes --output json"
+    schedule: "on_pr"
+    patterns:
+      - "k8s/**/*.yaml"
+
+  iac_scan:
+    name: "Infrastructure as Code Scan"
+    tool: "checkov"
+    command: "checkov -d infrastructure/terraform/ --framework terraform --output json"
+    schedule: "on_pr"
+    patterns:
+      - "infrastructure/terraform/**/*.tf"
+
+  actions_hardening:
+    name: "GitHub Actions Hardening Check"
+    tool: "actionlint"
+    command: "actionlint -format '{{json .}}' .github/workflows/*.yaml"
+    schedule: "on_pr"
+    patterns:
+      - ".github/workflows/*.yaml"
+      - ".github/workflows/*.yml"
+
+  secrets_scan:
+    name: "Secrets Detection"
+    tool: "gitleaks"
+    command: "gitleaks detect --source . --report-format json"
+    schedule: "on_push"
+    block_on_finding: true
+
+issue_classification:
+  categories:
+    - name: "lint"
+      priority: 3
+      auto_fixable: true
+    - name: "format"
+      priority: 4
+      auto_fixable: true
+    - name: "type"
+      priority: 2
+      auto_fixable: false
+    - name: "security"
+      priority: 1
+      auto_fixable: false
+    - name: "dependency"
+      priority: 2
+      auto_fixable: true
+    - name: "naming"
+      priority: 3
+      auto_fixable: true
+    - name: "config"
+      priority: 3
+      auto_fixable: true

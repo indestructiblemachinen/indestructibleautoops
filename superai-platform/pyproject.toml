@@ -101,6 +101,15 @@ dependencies = [
     "click>=8.1.7",
     "rich>=13.7.0",
     "typer>=0.9.0",
+
+    # === Artifact Conversion ===
+    "python-docx>=1.1.0",
+    "pdfplumber>=0.10.4",
+    "beautifulsoup4>=4.12.3",
+    "watchdog>=4.0.0",
+    "jsonschema>=4.21.1",
+    "markdown>=3.5.2",
+    "python-frontmatter>=1.1.0",
 ]
 
 [project.optional-dependencies]
@@ -131,6 +140,7 @@ docs = [
 superai = "src.presentation.api.main:cli"
 superai-worker = "src.infrastructure.tasks.worker:main"
 superai-health = "tools.health_check:main"
+superai-artifact = "src.artifact_converter.cli:app"
 yaml2json = "tools.yaml2json:main"
 
 [tool.hatch.build.targets.wheel]

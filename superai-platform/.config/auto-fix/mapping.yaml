@@ -1,0 +1,105 @@
+# Auto-Fix Bot - Issue to Fix Mapping
+# Maps detected issue categories to their corresponding fix scripts
+
+version: "1.0"
+
+fix_mappings:
+  lint_error:
+    description: "Python linting violations detected by ruff"
+    detector: "ruff_check"
+    fixer: "ruff --fix"
+    severity: "low"
+    auto_apply: true
+    labels: ["auto-fix", "lint"]
+
+  type_error:
+    description: "Type checking violations detected by mypy"
+    detector: "mypy_check"
+    fixer: "manual"
+    severity: "medium"
+    auto_apply: false
+    labels: ["auto-fix", "types"]
+
+  formatting:
+    description: "Code formatting violations"
+    detector: "ruff_format_check"
+    fixer: "ruff format"
+    severity: "low"
+    auto_apply: true
+    labels: ["auto-fix", "formatting"]
+
+  security_vulnerability:
+    description: "Known security vulnerabilities in dependencies"
+    detector: "safety_check"
+    fixer: "pip_upgrade_vulnerable"
+    severity: "high"
+    auto_apply: false
+    labels: ["auto-fix", "security", "dependencies"]
+
+  dependency_outdated:
+    description: "Outdated dependencies with available updates"
+    detector: "pip_audit"
+    fixer: "pip_upgrade_minor"
+    severity: "low"
+    auto_apply: true
+    labels: ["auto-fix", "dependencies"]
+
+  dockerfile_violation:
+    description: "Dockerfile best practice violations"
+    detector: "hadolint"
+    fixer: "docker_harden"
+    severity: "medium"
+    auto_apply: false
+    labels: ["auto-fix", "docker"]
+
+  workflow_unpinned:
+    description: "GitHub Actions using unpinned versions"
+    detector: "actions_sha_check"
+    fixer: "actions_pin_sha"
+    severity: "high"
+    auto_apply: false
+    labels: ["auto-fix", "ci", "security"]
+
+  naming_violation:
+    description: "K8s resource naming convention violations"
+    detector: "conftest_naming"
+    fixer: "naming_remediate"
+    severity: "medium"
+    auto_apply: false
+    labels: ["auto-fix", "naming", "k8s"]
+
+  helm_drift:
+    description: "Helm values out of sync with templates"
+    detector: "helm_diff"
+    fixer: "helm_sync"
+    severity: "medium"
+    auto_apply: false
+    labels: ["auto-fix", "helm"]
+
+  openapi_violation:
+    description: "OpenAPI spec violations"
+    detector: "spectral_lint"
+    fixer: "openapi_fix"
+    severity: "low"
+    auto_apply: true
+    labels: ["auto-fix", "api"]
+
+detectors:
+  ruff_check:
+    command: "ruff check src/ tests/ --output-format json"
+    exit_code_on_issue: 1
+  mypy_check:
+    command: "mypy src/ --ignore-missing-imports --output json"
+    exit_code_on_issue: 1
+  ruff_format_check:
+    command: "ruff format --check src/ tests/"
+    exit_code_on_issue: 1
+  safety_check:
+    command: "safety check --json"
+    exit_code_on_issue: 1
+  hadolint:
+    command: "hadolint Dockerfile.prod --format json"
+    exit_code_on_issue: 1
+  conftest_naming:
+    command: "conftest test k8s/ -p .config/conftest/policies/ --output json"
+    exit_code_on_issue: 1

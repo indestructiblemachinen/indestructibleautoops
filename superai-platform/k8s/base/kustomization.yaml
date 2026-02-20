@@ -17,6 +17,7 @@ resources:
   - configmap.yaml
   - secret.yaml
   - serviceaccount.yaml
+  - rbac.yaml
   - networkpolicy.yaml
   - deployment.yaml
   - service.yaml

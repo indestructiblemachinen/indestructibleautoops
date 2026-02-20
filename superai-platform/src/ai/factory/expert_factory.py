@@ -116,5 +116,9 @@ class ExpertFactory:
             experts = [e for e in experts if e["domain"] == domain]
         return [{k: v for k, v in e.items() if k != "system_prompt"} for e in experts]
 
-    async def delete_expert(self, expert_id: str) -> None:
-        _EXPERT_STORE.pop(expert_id, None)
+    async def delete_expert(self, expert_id: str) -> dict[str, Any]:
+        removed = _EXPERT_STORE.pop(expert_id, None)
+        if removed is None:
+            return {"status": "not_found", "expert_id": expert_id}
+        logger.info("expert_deleted", expert_id=expert_id)
+        return {"status": "deleted", "expert_id": expert_id, "name": removed.get("name", "")}

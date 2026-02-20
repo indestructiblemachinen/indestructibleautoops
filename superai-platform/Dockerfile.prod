@@ -46,7 +46,7 @@ COPY pyproject.toml ./
 # Upgrade pip and install dependencies
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --no-deps -e .[prod]
+    pip install --no-cache-dir -e .
 
 # ============================================================================
 # Stage 2: Production Runtime

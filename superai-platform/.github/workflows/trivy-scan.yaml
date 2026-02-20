@@ -1,0 +1,225 @@
+name: Trivy Security Scan
+
+on:
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
+
+concurrency:
+  group: trivy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions: {}
+
+jobs:
+  # ===========================================================================
+  # Job 1: Filesystem Scan
+  # ===========================================================================
+  filesystem-scan:
+    name: Filesystem Vulnerability Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@d710430a6722f083d3b36b8339ff66b32f22ee55 # v0.19.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs-results.sarif
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: "0"
+
+      - name: Upload filesystem scan SARIF
+        if: always()
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        with:
+          name: trivy-filesystem-sarif
+          path: trivy-fs-results.sarif
+          retention-days: 30
+
+      - name: Run Trivy filesystem scan (table output)
+        uses: aquasecurity/trivy-action@d710430a6722f083d3b36b8339ff66b32f22ee55 # v0.19.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: "0"
+
+  # ===========================================================================
+  # Job 2: Docker Image Scan
+  # ===========================================================================
+  image-scan:
+    name: Docker Image Vulnerability Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+
+      - name: Build Docker image for scanning
+        uses: docker/build-push-action@4a13e500e55cf31b7a5d59a38ab2040ab0f42f56 # v5.1.0
+        with:
+          context: .
+          file: Dockerfile.prod
+          push: false
+          load: true
+          tags: superai-platform:scan
+          cache-from: type=gha
+
+      - name: Run Trivy image scan (SARIF)
+        uses: aquasecurity/trivy-action@d710430a6722f083d3b36b8339ff66b32f22ee55 # v0.19.0
+        with:
+          image-ref: superai-platform:scan
+          format: sarif
+          output: trivy-image-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      - name: Upload image scan SARIF
+        if: always()
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        with:
+          name: trivy-image-sarif
+          path: trivy-image-results.sarif
+          retention-days: 30
+
+      - name: Run Trivy image scan (table output)
+        uses: aquasecurity/trivy-action@d710430a6722f083d3b36b8339ff66b32f22ee55 # v0.19.0
+        with:
+          image-ref: superai-platform:scan
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+  # ===========================================================================
+  # Job 3: IaC Configuration Scan
+  # ===========================================================================
+  iac-scan:
+    name: IaC Configuration Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Run Trivy config scan on Kubernetes manifests
+        uses: aquasecurity/trivy-action@d710430a6722f083d3b36b8339ff66b32f22ee55 # v0.19.0
+        with:
+          scan-type: config
+          scan-ref: k8s/
+          format: sarif
+          output: trivy-k8s-config.sarif
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: "0"
+
+      - name: Run Trivy config scan on Terraform
+        uses: aquasecurity/trivy-action@d710430a6722f083d3b36b8339ff66b32f22ee55 # v0.19.0
+        with:
+          scan-type: config
+          scan-ref: infrastructure/terraform/
+          format: sarif
+          output: trivy-terraform-config.sarif
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: "0"
+
+      - name: Run Trivy config scan on Dockerfiles
+        uses: aquasecurity/trivy-action@d710430a6722f083d3b36b8339ff66b32f22ee55 # v0.19.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-dockerfile-config.sarif
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: "0"
+
+      - name: Upload IaC scan SARIF results
+        if: always()
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        with:
+          name: trivy-iac-sarif
+          path: |
+            trivy-k8s-config.sarif
+            trivy-terraform-config.sarif
+            trivy-dockerfile-config.sarif
+          retention-days: 30
+
+  # ===========================================================================
+  # Job 4: Aggregate and Upload SARIF
+  # ===========================================================================
+  upload-sarif:
+    name: Upload SARIF to GitHub
+    runs-on: ubuntu-latest
+    needs: [filesystem-scan, image-scan, iac-scan]
+    if: always()
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Download filesystem SARIF
+        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
+        with:
+          name: trivy-filesystem-sarif
+          path: sarif-results/
+        continue-on-error: true
+
+      - name: Download image SARIF
+        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
+        with:
+          name: trivy-image-sarif
+          path: sarif-results/
+        continue-on-error: true
+
+      - name: Download IaC SARIF
+        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
+        with:
+          name: trivy-iac-sarif
+          path: sarif-results/
+        continue-on-error: true
+
+      - name: List SARIF results
+        run: |
+          echo "=== SARIF Results ==="
+          find sarif-results/ -name "*.sarif" -type f 2>/dev/null || echo "No SARIF files found"
+
+      - name: Upload combined SARIF results
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        with:
+          name: trivy-all-sarif-results
+          path: sarif-results/
+          retention-days: 30
+
+      - name: Generate scan summary
+        if: always()
+        run: |
+          echo "## Trivy Security Scan Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Scan Type | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Filesystem | ${{ needs.filesystem-scan.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Docker Image | ${{ needs.image-scan.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| IaC Config | ${{ needs.iac-scan.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "SARIF results have been uploaded as artifacts." >> "$GITHUB_STEP_SUMMARY"

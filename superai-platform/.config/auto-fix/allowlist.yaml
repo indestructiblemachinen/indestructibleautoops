@@ -1,0 +1,51 @@
+# Auto-Fix Bot - Allowed Paths and Operations
+# Only changes within these paths are permitted by the auto-fix bot
+
+version: "1.0"
+
+allowed_paths:
+  lint_fixes:
+    - "src/**/*.py"
+    - "tests/**/*.py"
+    - "tools/**/*.py"
+  dependency_updates:
+    - "pyproject.toml"
+    - "requirements*.txt"
+  docker_hardening:
+    - "Dockerfile.*"
+    - "infrastructure/docker/**"
+    - ".dockerignore"
+  workflow_hardening:
+    - ".github/workflows/*.yaml"
+    - ".github/workflows/*.yml"
+  helm_sync:
+    - "helm/**/*.yaml"
+    - "k8s/**/*.yaml"
+  policy_updates:
+    - ".config/policy/**/*.rego"
+    - ".config/conftest/**/*.rego"
+
+blocked_paths:
+  - ".env"
+  - ".env.*"
+  - "!.env.example"
+  - "secrets/**"
+  - "*.key"
+  - "*.pem"
+  - "*.cert"
+  - "infrastructure/terraform/**/*.tfstate"
+
+max_changes_per_pr: 50
+max_files_per_pr: 20
+require_approval_for:
+  - "infrastructure/terraform/**"
+  - "k8s/overlays/prod/**"
+  - "helm/values-prod.yaml"
+  - ".github/workflows/**"
+
+auto_merge:
+  enabled: false
+  conditions:
+    - "ci_passed"
+    - "no_security_findings"
+    - "less_than_10_files"

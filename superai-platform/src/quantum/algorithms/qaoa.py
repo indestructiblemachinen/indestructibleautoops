@@ -14,6 +14,15 @@ logger = structlog.get_logger(__name__)
 class QAOASolver:
     """QAOA solver for combinatorial optimization problems."""
 
+    async def solve(self, cost_matrix: list[list[float]], num_layers: int, optimizer: str, shots: int) -> dict[str, Any]:
+        """Alias for ``optimize`` used by the application use-case layer."""
+        return await self.optimize(
+            cost_matrix=cost_matrix,
+            num_layers=num_layers,
+            optimizer=optimizer,
+            shots=shots,
+        )
+
     async def optimize(self, cost_matrix: list[list[float]], num_layers: int, optimizer: str, shots: int) -> dict[str, Any]:
         start = time.perf_counter()
         job_id = str(uuid.uuid4())

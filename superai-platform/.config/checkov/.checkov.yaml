@@ -1,0 +1,50 @@
+# Checkov - Infrastructure as Code Security Scanner Configuration
+# https://www.checkov.io/
+
+branch: main
+compact: true
+download-external-modules: false
+evaluate-variables: true
+framework:
+  - kubernetes
+  - dockerfile
+  - github_actions
+  - json
+  - yaml
+
+output:
+  - cli
+  - json
+  - sarif
+
+soft-fail: false
+
+# Skip specific checks that are not applicable
+skip-check:
+  # K8s: Allow hostNetwork for monitoring agents
+  - CKV_K8S_19
+  # Dockerfile: We use pip install which is expected
+  - CKV_DOCKER_6
+
+# Custom policies directory
+external-checks-dir:
+  - .config/policy
+
+# Directories to scan
+directory:
+  - k8s/
+  - helm/
+  - infrastructure/terraform/
+  - .github/workflows/
+
+# Files to skip
+skip-path:
+  - "*.md"
+  - "*.txt"
+  - "tests/"
+  - "docs/"
+  - "node_modules/"
+  - ".git/"
+
+# Report settings
+repo-id: indestructiblemachinen/indestructibleautoops

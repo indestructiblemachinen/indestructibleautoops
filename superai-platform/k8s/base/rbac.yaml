@@ -1,125 +1,152 @@
+# ============================================================================
 # RBAC Configuration for SuperAI Platform
-# P0 Critical: ServiceAccounts, Roles, ClusterRoles, and Bindings
+# ============================================================================
+# ServiceAccounts are defined in serviceaccount.yaml
+# This file contains Roles, ClusterRoles, and their Bindings
+# ============================================================================
 
 ---
-# Service Account for the main application
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: superai-app
-  namespace: default
-  labels:
-    app: superai-platform
-    component: api
-automountServiceAccountToken: false
----
-# Service Account for workers (Celery)
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: superai-worker
-  namespace: default
-  labels:
-    app: superai-platform
-    component: worker
-automountServiceAccountToken: false
----
-# Service Account for monitoring agents
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: superai-monitoring
-  namespace: default
-  labels:
-    app: superai-platform
-    component: monitoring
-automountServiceAccountToken: false
----
-# Role for application namespace access
+# Role: Application namespace access (read configmaps/secrets, create events)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: superai-app-role
-  namespace: default
+  namespace: superai
   labels:
-    app: superai-platform
+    app.kubernetes.io/name: superai-platform
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/managed-by: kustomize
 rules:
-  # ConfigMaps and Secrets access
+  # ConfigMaps and Secrets — read-only for app configuration
   - apiGroups: [""]
     resources: ["configmaps", "secrets"]
     verbs: ["get", "list", "watch"]
-  
-  # Pod access for health checks
+  # Pod introspection for health checks and service discovery
   - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
-  
-  # Service account token for service discovery
-  - apiGroups: [""]
-    resources: ["serviceaccounts"]
-    verbs: ["impersonate"]
-    resourceNames: ["superai-app"]
-  
-  # Events access for logging
+    resources: ["pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  # Events — allow app to emit K8s events for audit/observability
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
+  # Deployments — read-only for readiness checks
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+
 ---
-# Role for worker namespace access
+# Role: Worker namespace access (broader for job orchestration)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: superai-worker-role
-  namespace: default
+  namespace: superai
   labels:
-    app: superai-platform
+    app.kubernetes.io/name: superai-platform
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/managed-by: kustomize
 rules:
-  # ConfigMaps access
+  # ConfigMaps — read-only
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list", "watch"]
-  
-  # Secrets access for credentials
+  # Secrets — read-only for credentials
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list"]
-  
-  # Pods access for job monitoring
+  # Pod and log access for job monitoring
   - apiGroups: [""]
     resources: ["pods", "pods/log"]
     verbs: ["get", "list", "watch"]
-  
-  # Jobs access
+  # Events for worker lifecycle reporting
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # Jobs — full lifecycle management for task execution
   - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
 ---
-# ClusterRole for monitoring (metrics scraping)
+# ClusterRole: Monitoring (metrics scraping across namespaces)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: superai-monitoring
   labels:
-    app: superai-platform
-    component: monitoring
+    app.kubernetes.io/name: superai-platform
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/managed-by: kustomize
 rules:
-  # Metrics access
+  # Node and pod metrics for Prometheus
   - apiGroups: [""]
-    resources: ["nodes", "nodes/metrics", "pods", "services"]
+    resources: ["nodes", "nodes/metrics", "nodes/proxy", "pods", "services", "endpoints"]
     verbs: ["get", "list", "watch"]
-  
-  # Non-resource URLs for health checks
-  - nonResourceURLs: ["/healthz", "/healthz/*", "/metrics"]
+  # Non-resource URLs for health and metrics endpoints
+  - nonResourceURLs: ["/healthz", "/healthz/*", "/metrics", "/metrics/cadvisor"]
     verbs: ["get"]
+
 ---
-# RoleBinding for application
+# ClusterRole: Platform admin (operations team)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: superai-platform-admin
+  labels:
+    app.kubernetes.io/name: superai-platform
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  # Core resources
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+      - pods/exec
+      - services
+      - endpoints
+      - persistentvolumeclaims
+      - events
+      - configmaps
+      - secrets
+      - serviceaccounts
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Workload resources
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Batch resources
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Autoscaling
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Networking
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Policy
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Metrics
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+
+---
+# RoleBinding: Application service account -> app role
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: superai-app-binding
-  namespace: default
+  name: superai-app-rolebinding
+  namespace: superai
   labels:
-    app: superai-platform
+    app.kubernetes.io/name: superai-platform
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/managed-by: kustomize
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -127,16 +154,19 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: superai-app
-    namespace: default
+    namespace: superai
+
 ---
-# RoleBinding for worker
+# RoleBinding: Worker service account -> worker role
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: superai-worker-binding
-  namespace: default
+  name: superai-worker-rolebinding
+  namespace: superai
   labels:
-    app: superai-platform
+    app.kubernetes.io/name: superai-platform
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/managed-by: kustomize
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -144,73 +174,37 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: superai-worker
-    namespace: default
+    namespace: superai
+
 ---
-# ClusterRoleBinding for monitoring
+# ClusterRoleBinding: Monitoring service account -> monitoring cluster role
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: superai-monitoring-binding
   labels:
-    app: superai-platform
-    component: monitoring
+    app.kubernetes.io/name: superai-platform
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/managed-by: kustomize
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: superai-monitoring
 subjects:
   - kind: ServiceAccount
-    name: superai-monitoring
-    namespace: default
+    name: superai-app
+    namespace: superai
+
 ---
-# Role for platform admin (for operations)
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: superai-platform-admin
-  labels:
-    app: superai-platform
-    component: admin
-rules:
-  # Full access to platform resources
-  - apiGroups: [""]
-    resources: ["pods", "services", "endpoints", "persistentvolumeclaims", "events", "configmaps", "secrets", "serviceaccounts"]
-    verbs: ["*"]
-  
-  - apiGroups: ["apps"]
-    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
-    verbs: ["*"]
-  
-  - apiGroups: ["batch"]
-    resources: ["jobs", "cronjobs"]
-    verbs: ["*"]
-  
-  - apiGroups: ["autoscaling"]
-    resources: ["horizontalpodautoscalers"]
-    verbs: ["*"]
-  
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses", "networkpolicies"]
-    verbs: ["*"]
-  
-  # Metrics access
-  - apiGroups: ["metrics.k8s.io"]
-    resources: ["pods", "nodes"]
-    verbs: ["get", "list"]
-  
-  # Custom resources (if any)
-  - apiGroups: ["superai.io"]
-    resources: ["*"]
-    verbs: ["*"]
----
-# ClusterRoleBinding for platform admin
+# ClusterRoleBinding: Platform admin group -> admin cluster role
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: superai-platform-admin-binding
   labels:
-    app: superai-platform
-    component: admin
+    app.kubernetes.io/name: superai-platform
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/managed-by: kustomize
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -219,6 +213,3 @@ subjects:
   - kind: Group
     name: superai-platform-admins
     apiGroup: rbac.authorization.k8s.io
-  - kind: ServiceAccount
-    name: superai-app
-    namespace: default

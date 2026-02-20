@@ -120,8 +120,8 @@ class CreateVectorCollectionUseCase:
         result = await manager.add_documents(
             collection_name=collection,
             documents=documents,
-            metadatas=metadatas or [],
-            ids=ids or [],
+            metadatas=metadatas,
+            ids=ids,
         )
         logger.info("vector_collection_updated", collection=collection, doc_count=len(documents))
         return result
@@ -139,7 +139,7 @@ class SearchVectorCollectionUseCase:
     ) -> dict[str, Any]:
         from src.ai.vectordb.manager import VectorDBManager
         manager = VectorDBManager()
-        result = await manager.search(
+        result = await manager.semantic_search(
             collection_name=collection,
             query=query,
             top_k=top_k,
@@ -152,7 +152,7 @@ class SearchVectorCollectionUseCase:
 class ListVectorCollectionsUseCase:
     """List all vector collections."""
 
-    async def execute(self) -> dict[str, Any]:
+    async def execute(self) -> list[dict[str, Any]]:
         from src.ai.vectordb.manager import VectorDBManager
         manager = VectorDBManager()
         return await manager.list_collections()

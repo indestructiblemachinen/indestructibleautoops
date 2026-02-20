@@ -1,19 +1,43 @@
-"""Centralized API request/response schemas — Pydantic models for validation."""
+"""Centralised API request/response schemas — Pydantic v2 models with strict validation.
+
+All schemas use ``model_config = ConfigDict(...)`` and Pydantic v2 ``Field`` /
+``field_validator`` / ``model_validator`` where appropriate.
+"""
 from __future__ import annotations
 
+import re
+from datetime import datetime
+from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
-# --- Common ---
+# ============================================================================
+# Common / shared
+# ============================================================================
 
 class ErrorDetail(BaseModel):
+    """Single field-level validation error."""
+
+    model_config = ConfigDict(frozen=True)
+
     field: str | None = None
     message: str
 
 
 class ErrorResponse(BaseModel):
+    """Standard error envelope returned for all non-2xx responses."""
+
+    model_config = ConfigDict(frozen=True)
+
     code: str
     message: str
     details: list[ErrorDetail] = Field(default_factory=list)
@@ -21,186 +45,518 @@ class ErrorResponse(BaseModel):
     timestamp: str | None = None
 
 
-class PaginationParams(BaseModel):
-    skip: int = Field(default=0, ge=0)
-    limit: int = Field(default=20, ge=1, le=100)
+class PaginatedRequest(BaseModel):
+    """Pagination query parameters reused across list endpoints."""
+
+    model_config = ConfigDict(frozen=True)
+
+    skip: int = Field(default=0, ge=0, description="Number of items to skip")
+    limit: int = Field(default=20, ge=1, le=100, description="Max items per page")
+    search: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Optional full-text search term",
+    )
 
 
 class PaginatedResponse(BaseModel):
+    """Generic paginated response wrapper."""
+
     items: list[Any]
-    total: int
-    skip: int
-    limit: int
+    total: int = Field(ge=0)
+    skip: int = Field(ge=0)
+    limit: int = Field(ge=1)
     has_next: bool = False
 
 
-# --- User Schemas ---
+# ============================================================================
+# User schemas
+# ============================================================================
+
+class _ValidRolesMixin:
+    """Shared role validation constant."""
+
+    _VALID_ROLES = {"admin", "operator", "scientist", "developer", "viewer"}
+
 
 class UserCreateRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_-]+$")
-    email: str = Field(..., max_length=254, description="Valid email address")
-    password: str = Field(..., min_length=8, max_length=128)
-    full_name: str = Field(default="", max_length=200)
-    role: str = Field(default="viewer", pattern=r"^(admin|operator|scientist|developer|viewer)$")
+    """Register a new user account."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    username: str = Field(
+        ...,
+        min_length=3,
+        max_length=50,
+        pattern=r"^[a-zA-Z0-9_-]+$",
+        description="Alphanumeric username (hyphens/underscores allowed)",
+        examples=["jane_doe"],
+    )
+    email: EmailStr = Field(
+        ...,
+        description="Valid email address",
+        examples=["jane@example.com"],
+    )
+    password: str = Field(
+        ...,
+        min_length=8,
+        max_length=128,
+        description="Must contain uppercase, lowercase, digit, and special char",
+    )
+    full_name: str = Field(
+        default="",
+        max_length=200,
+        description="Display name",
+    )
+    role: str = Field(
+        default="viewer",
+        description="User role",
+    )
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        violations: list[str] = []
+        if not re.search(r"[A-Z]", v):
+            violations.append("at least one uppercase letter")
+        if not re.search(r"[a-z]", v):
+            violations.append("at least one lowercase letter")
+        if not re.search(r"\d", v):
+            violations.append("at least one digit")
+        if not re.search(r"[!@#$%^&*(),.?\":{}|<>\-_=+\[\]\\/'`~;]", v):
+            violations.append("at least one special character")
+        if violations:
+            raise ValueError(f"Password must contain: {'; '.join(violations)}")
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        allowed = {"admin", "operator", "scientist", "developer", "viewer"}
+        if v not in allowed:
+            raise ValueError(f"Role must be one of: {', '.join(sorted(allowed))}")
+        return v
+
+    @field_validator("email")
+    @classmethod
+    def normalise_email(cls, v: str) -> str:
+        return v.lower()
 
 
 class UserUpdateRequest(BaseModel):
+    """Partial update for user profile fields."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     full_name: str | None = Field(None, max_length=200)
-    role: str | None = Field(None, pattern=r"^(admin|operator|scientist|developer|viewer)$")
+    role: str | None = Field(None)
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        allowed = {"admin", "operator", "scientist", "developer", "viewer"}
+        if v not in allowed:
+            raise ValueError(f"Role must be one of: {', '.join(sorted(allowed))}")
+        return v
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> "UserUpdateRequest":
+        if self.full_name is None and self.role is None:
+            raise ValueError("At least one field must be provided for update")
+        return self
 
 
 class UserResponse(BaseModel):
+    """Public representation of a user."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     username: str
     email: str
     full_name: str
     role: str
     status: str
-    created_at: str
-    last_login_at: str | None = None
-    login_count: int = 0
+    created_at: datetime
+    last_login_at: datetime | None = None
+
+    @field_validator("created_at", "last_login_at", mode="before")
+    @classmethod
+    def coerce_datetime(cls, v: Any) -> Any:
+        """Accept ISO-format strings as well as native datetimes."""
+        if isinstance(v, str):
+            return datetime.fromisoformat(v)
+        return v
 
 
 class UserListResponse(PaginatedResponse):
+    """Paginated list of users."""
+
     items: list[UserResponse]  # type: ignore[assignment]
 
 
-class LoginRequest(BaseModel):
-    username: str = Field(..., min_length=1)
-    password: str = Field(..., min_length=1)
+# ============================================================================
+# Authentication / token schemas
+# ============================================================================
+
+class TokenRequest(BaseModel):
+    """Login credentials for token acquisition."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    username: str = Field(..., min_length=1, max_length=50)
+    password: str = Field(..., min_length=1, max_length=128)
 
 
 class TokenResponse(BaseModel):
+    """JWT token pair returned on successful authentication."""
+
     access_token: str
     refresh_token: str
-    token_type: str = "bearer"
-    expires_in: int
+    token_type: str = Field(default="bearer")
+    expires_in: int = Field(
+        ...,
+        gt=0,
+        description="Token lifetime in seconds",
+    )
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+    """Request to exchange a refresh token for a new access token."""
+
+    refresh_token: str = Field(..., min_length=1)
 
 
-# --- Quantum Schemas ---
+# ============================================================================
+# Quantum computing schemas
+# ============================================================================
 
-class CircuitRequest(BaseModel):
-    num_qubits: int = Field(..., ge=1, le=30, description="Number of qubits")
-    circuit_type: str = Field(default="bell", pattern=r"^(bell|ghz|qft|grover|custom)$")
-    shots: int = Field(default=1024, ge=1, le=100000)
-    parameters: dict[str, Any] = Field(default_factory=dict)
+class QuantumJobRequest(BaseModel):
+    """Submit a quantum computing job."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    algorithm: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="Quantum algorithm to execute",
+        examples=["vqe", "qaoa", "qml", "grover", "bell"],
+    )
+    num_qubits: int = Field(
+        ...,
+        ge=1,
+        le=30,
+        description="Number of qubits",
+    )
+    shots: int = Field(
+        default=1024,
+        ge=1,
+        le=100_000,
+        description="Number of measurement shots",
+    )
+    backend: str = Field(
+        default="aer_simulator",
+        max_length=50,
+        description="Quantum backend identifier",
+    )
+    parameters: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Algorithm-specific parameters",
+    )
+
+    @field_validator("algorithm")
+    @classmethod
+    def normalise_algorithm(cls, v: str) -> str:
+        return v.lower().strip()
+
+    @field_validator("backend")
+    @classmethod
+    def normalise_backend(cls, v: str) -> str:
+        return v.lower().strip()
 
 
-class VQERequest(BaseModel):
-    hamiltonian: list[list[float]] = Field(..., description="Hamiltonian matrix")
-    num_qubits: int = Field(..., ge=1, le=20)
-    ansatz: str = Field(default="ry", pattern=r"^(ry|ryrz|efficient_su2|hardware_efficient)$")
-    optimizer: str = Field(default="cobyla", pattern=r"^(cobyla|spsa|adam|l_bfgs_b)$")
-    max_iterations: int = Field(default=100, ge=1, le=10000)
-    shots: int = Field(default=1024, ge=1, le=100000)
+class QuantumJobResponse(BaseModel):
+    """Quantum job execution result."""
 
+    model_config = ConfigDict(from_attributes=True)
 
-class QAOARequest(BaseModel):
-    cost_matrix: list[list[float]] = Field(..., description="Cost matrix for optimization")
-    num_layers: int = Field(default=2, ge=1, le=20)
-    optimizer: str = Field(default="cobyla", pattern=r"^(cobyla|spsa|adam)$")
-    shots: int = Field(default=1024, ge=1, le=100000)
-
-
-class QMLRequest(BaseModel):
-    training_data: list[list[float]] = Field(..., description="Training feature vectors")
-    training_labels: list[int] = Field(..., description="Training labels")
-    test_data: list[list[float]] = Field(default_factory=list)
-    feature_map: str = Field(default="zz", pattern=r"^(zz|pauli|amplitude)$")
-    ansatz: str = Field(default="real_amplitudes")
-    epochs: int = Field(default=50, ge=1, le=1000)
-
-
-class QuantumResultResponse(BaseModel):
     job_id: str
     status: str
+    algorithm: str
     result: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
-    execution_time_ms: float = 0.0
+    execution_time_ms: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Execution wall-clock time in milliseconds",
+    )
 
 
-# --- AI Schemas ---
+# ============================================================================
+# AI expert schemas
+# ============================================================================
 
-class ExpertCreateRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
-    domain: str = Field(..., min_length=1, max_length=50)
-    specialization: str = Field(default="", max_length=200)
-    knowledge_base: list[str] = Field(default_factory=list)
-    model: str = Field(default="gpt-4-turbo-preview")
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    system_prompt: str = Field(default="", max_length=5000)
+class AIExpertCreateRequest(BaseModel):
+    """Create a new AI domain expert."""
 
+    model_config = ConfigDict(str_strip_whitespace=True)
 
-class ExpertQueryRequest(BaseModel):
-    query: str = Field(..., min_length=1, max_length=10000)
-    context: dict[str, Any] = Field(default_factory=dict)
-    max_tokens: int = Field(default=2000, ge=1, le=16000)
-    include_sources: bool = Field(default=False)
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="Expert display name",
+        examples=["QuantumML Advisor"],
+    )
+    domain: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="Knowledge domain (e.g. quantum, ml, devops, security)",
+    )
+    specialization: str = Field(
+        default="",
+        max_length=500,
+        description="Narrow area of expertise",
+    )
+    model: str = Field(
+        default="gpt-4-turbo-preview",
+        max_length=100,
+        description="Underlying LLM model identifier",
+    )
+    temperature: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature",
+    )
+    system_prompt: str = Field(
+        default="",
+        max_length=10_000,
+        description="Custom system prompt for the expert",
+    )
+    knowledge_base: list[str] = Field(
+        default_factory=list,
+        description="List of document IDs or URLs for RAG context",
+    )
 
-
-class VectorStoreRequest(BaseModel):
-    collection: str = Field(..., min_length=1, max_length=100)
-    documents: list[str] = Field(..., min_items=1)
-    metadatas: list[dict[str, Any]] = Field(default_factory=list)
-    ids: list[str] = Field(default_factory=list)
-
-
-class VectorSearchRequest(BaseModel):
-    collection: str = Field(..., min_length=1, max_length=100)
-    query: str = Field(..., min_length=1, max_length=5000)
-    top_k: int = Field(default=10, ge=1, le=100)
-    threshold: float = Field(default=0.0, ge=0.0, le=1.0)
-
-
-class EmbeddingRequest(BaseModel):
-    texts: list[str] = Field(..., min_items=1, max_items=100)
-    model: str = Field(default="text-embedding-3-small")
-
-
-# --- Scientific Schemas ---
-
-class MatrixRequest(BaseModel):
-    matrix: list[list[float]] = Field(..., description="Input matrix")
-    compute_vectors: bool = Field(default=True)
-
-
-class LinearSystemRequest(BaseModel):
-    coefficients: list[list[float]] = Field(..., description="Coefficient matrix A")
-    constants: list[float] = Field(..., description="Constants vector b")
-
-
-class StatisticsRequest(BaseModel):
-    data: list[float] = Field(..., min_items=1, description="Data array")
-    confidence_level: float = Field(default=0.95, ge=0.5, le=0.999)
-
-
-class OptimizationRequest(BaseModel):
-    method: str = Field(default="minimize", pattern=r"^(minimize|root|linprog|curve_fit)$")
-    objective: str = Field(..., description="Objective function expression")
-    bounds: list[list[float]] = Field(default_factory=list)
-    constraints: list[dict[str, Any]] = Field(default_factory=list)
-    initial_guess: list[float] = Field(default_factory=list)
-    parameters: dict[str, Any] = Field(default_factory=dict)
+    @field_validator("knowledge_base")
+    @classmethod
+    def validate_knowledge_base(cls, v: list[str]) -> list[str]:
+        if len(v) > 100:
+            raise ValueError("Knowledge base cannot contain more than 100 entries")
+        return [entry.strip() for entry in v if entry.strip()]
 
 
-class MLTrainRequest(BaseModel):
-    model_type: str = Field(default="random_forest", pattern=r"^(random_forest|gradient_boosting|svm|neural_network|linear_regression|logistic_regression)$")
-    task: str = Field(default="classification", pattern=r"^(classification|regression)$")
-    features: list[list[float]] = Field(..., description="Feature matrix")
-    labels: list[float] = Field(..., description="Target labels")
-    test_size: float = Field(default=0.2, ge=0.05, le=0.5)
-    hyperparameters: dict[str, Any] = Field(default_factory=dict)
+class AIExpertQueryRequest(BaseModel):
+    """Query an AI expert."""
 
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=10_000,
+        description="Natural-language query",
+    )
+    context: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional context key-value pairs",
+    )
+    max_tokens: int = Field(
+        default=2000,
+        ge=1,
+        le=32_000,
+        description="Maximum tokens in the response",
+    )
+    include_sources: bool = Field(
+        default=False,
+        description="Include RAG source references in the response",
+    )
+
+
+class AIExpertResponse(BaseModel):
+    """Public representation of an AI expert."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    domain: str
+    specialization: str
+    status: str
+    model: str
+    query_count: int = Field(default=0, ge=0)
+    created_at: datetime
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def coerce_datetime(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return datetime.fromisoformat(v)
+        return v
+
+
+# ============================================================================
+# Scientific computing schemas
+# ============================================================================
+
+class ScientificAnalysisRequest(BaseModel):
+    """Tabular data analysis request (Pandas-style)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    data: list[list[float]] = Field(
+        ...,
+        min_length=1,
+        description="Data matrix — rows are samples, columns are features",
+    )
+    columns: list[str] = Field(
+        default_factory=list,
+        description="Optional column names (must match data width if provided)",
+    )
+    operations: list[str] = Field(
+        default_factory=lambda: ["describe"],
+        min_length=1,
+        description="Statistical operations to perform",
+    )
+
+    @field_validator("data")
+    @classmethod
+    def validate_data_shape(cls, v: list[list[float]]) -> list[list[float]]:
+        if not v:
+            raise ValueError("Data must contain at least one row")
+        row_len = len(v[0])
+        if row_len == 0:
+            raise ValueError("Data rows must not be empty")
+        for idx, row in enumerate(v):
+            if len(row) != row_len:
+                raise ValueError(
+                    f"Row {idx} has {len(row)} columns, expected {row_len}"
+                )
+        return v
+
+    @field_validator("operations")
+    @classmethod
+    def validate_operations(cls, v: list[str]) -> list[str]:
+        allowed = {
+            "describe",
+            "correlation",
+            "covariance",
+            "histogram",
+            "outliers",
+            "percentiles",
+            "normality_test",
+            "skewness",
+            "kurtosis",
+        }
+        for op in v:
+            if op not in allowed:
+                raise ValueError(
+                    f"Unknown operation '{op}'. Allowed: {', '.join(sorted(allowed))}"
+                )
+        return v
+
+    @model_validator(mode="after")
+    def check_columns_match_data(self) -> "ScientificAnalysisRequest":
+        if self.columns and len(self.columns) != len(self.data[0]):
+            raise ValueError(
+                f"Number of column names ({len(self.columns)}) must match "
+                f"data width ({len(self.data[0])})"
+            )
+        return self
+
+
+class ScientificMatrixRequest(BaseModel):
+    """Matrix operation request."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    matrix: list[list[float]] = Field(
+        ...,
+        min_length=1,
+        description="Input matrix",
+    )
+    operation: str = Field(
+        ...,
+        description="Matrix operation to perform",
+    )
+    params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Operation-specific parameters",
+    )
+
+    @field_validator("matrix")
+    @classmethod
+    def validate_matrix_shape(cls, v: list[list[float]]) -> list[list[float]]:
+        if not v:
+            raise ValueError("Matrix must contain at least one row")
+        row_len = len(v[0])
+        if row_len == 0:
+            raise ValueError("Matrix rows must not be empty")
+        for idx, row in enumerate(v):
+            if len(row) != row_len:
+                raise ValueError(
+                    f"Row {idx} has {len(row)} columns, expected {row_len}"
+                )
+        return v
+
+    @field_validator("operation")
+    @classmethod
+    def validate_operation(cls, v: str) -> str:
+        allowed = {
+            "multiply",
+            "inverse",
+            "eigenvalues",
+            "svd",
+            "determinant",
+            "transpose",
+            "norm",
+            "solve",
+            "rank",
+            "trace",
+            "cholesky",
+            "qr",
+            "lu",
+        }
+        normalised = v.lower().strip()
+        if normalised not in allowed:
+            raise ValueError(
+                f"Unknown operation '{v}'. Allowed: {', '.join(sorted(allowed))}"
+            )
+        return normalised
+
+
+# ============================================================================
+# Re-export all schemas for convenient imports
+# ============================================================================
 
 __all__ = [
-    "ErrorResponse", "ErrorDetail", "PaginationParams", "PaginatedResponse",
-    "UserCreateRequest", "UserUpdateRequest", "UserResponse", "UserListResponse",
-    "LoginRequest", "TokenResponse", "RefreshTokenRequest",
-    "CircuitRequest", "VQERequest", "QAOARequest", "QMLRequest", "QuantumResultResponse",
-    "ExpertCreateRequest", "ExpertQueryRequest", "VectorStoreRequest", "VectorSearchRequest", "EmbeddingRequest",
-    "MatrixRequest", "LinearSystemRequest", "StatisticsRequest", "OptimizationRequest", "MLTrainRequest",
+    # Common
+    "ErrorDetail",
+    "ErrorResponse",
+    "PaginatedRequest",
+    "PaginatedResponse",
+    # Users
+    "UserCreateRequest",
+    "UserUpdateRequest",
+    "UserResponse",
+    "UserListResponse",
+    # Auth
+    "TokenRequest",
+    "TokenResponse",
+    "RefreshTokenRequest",
+    # Quantum
+    "QuantumJobRequest",
+    "QuantumJobResponse",
+    # AI
+    "AIExpertCreateRequest",
+    "AIExpertQueryRequest",
+    "AIExpertResponse",
+    # Scientific
+    "ScientificAnalysisRequest",
+    "ScientificMatrixRequest",
 ]

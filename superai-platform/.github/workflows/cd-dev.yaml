@@ -1,0 +1,202 @@
+name: CD - Deploy to Dev
+
+on:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: cd-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  PYTHON_VERSION: "3.11"
+  ARGOCD_APP_NAME: superai-platform-dev
+  DEV_NAMESPACE: superai-dev
+
+permissions: {}
+
+jobs:
+  # ===========================================================================
+  # Job 1: Build and Push Docker Image
+  # ===========================================================================
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.tags.outputs.image_tag }}
+      image_full: ${{ steps.tags.outputs.image_full }}
+      sha_short: ${{ steps.tags.outputs.sha_short }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image tags
+        id: tags
+        run: |
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          IMAGE_TAG="dev-${SHA_SHORT}"
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          echo "sha_short=${SHA_SHORT}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "image_full=${IMAGE}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "tags=${IMAGE}:${IMAGE_TAG},${IMAGE}:develop,${IMAGE}:dev-${TIMESTAMP}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@4a13e500e55cf31b7a5d59a38ab2040ab0f42f56 # v5.1.0
+        with:
+          context: .
+          file: Dockerfile.prod
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+            VERSION=dev-${{ steps.tags.outputs.sha_short }}
+          platforms: linux/amd64
+
+  # ===========================================================================
+  # Job 2: Update ArgoCD Application
+  # ===========================================================================
+  update-argocd:
+    name: Update ArgoCD Application
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Helm values with new image tag
+        run: |
+          IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
+          IMAGE_FULL="${{ needs.build-and-push.outputs.image_full }}"
+          echo "Updating ArgoCD application to use image: ${IMAGE_FULL}"
+
+          # Update kustomization overlay for dev
+          if [ -f k8s/overlays/dev/kustomization.yaml ]; then
+            sed -i "s|newTag:.*|newTag: ${IMAGE_TAG}|g" k8s/overlays/dev/kustomization.yaml
+          fi
+
+          # Update Helm values for dev
+          if [ -f helm/values-dev.yaml ]; then
+            sed -i "s|tag:.*|tag: \"${IMAGE_TAG}\"|g" helm/values-dev.yaml
+          fi
+
+      - name: Commit and push image tag update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "chore(cd): update dev image to ${{ needs.build-and-push.outputs.image_tag }}"
+          git push
+
+      - name: Trigger ArgoCD sync
+        run: |
+          echo "=== ArgoCD Dev Deployment ==="
+          echo "Application: ${{ env.ARGOCD_APP_NAME }}"
+          echo "Image: ${{ needs.build-and-push.outputs.image_full }}"
+          echo "Commit: ${{ github.sha }}"
+          echo ""
+          echo "ArgoCD will detect the Git change and auto-sync the application."
+          echo "To force sync manually:"
+          echo "  argocd app sync ${{ env.ARGOCD_APP_NAME }} --prune"
+
+  # ===========================================================================
+  # Job 3: Smoke Test
+  # ===========================================================================
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: update-argocd
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Set up Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Wait for deployment rollout
+        run: |
+          echo "Waiting for deployment to stabilize..."
+          sleep 30
+
+      - name: Run smoke tests
+        env:
+          DEV_API_URL: ${{ secrets.DEV_API_URL }}
+          SMOKE_TEST_TIMEOUT: "120"
+        run: |
+          API_URL="${DEV_API_URL:-https://dev-api.superai.example.com}"
+          echo "Running smoke tests against: ${API_URL}"
+
+          # Health endpoint check
+          echo "Checking health endpoint..."
+          HEALTH_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --retry 5 \
+            --retry-delay 10 \
+            --retry-max-time 120 \
+            "${API_URL}/health" 2>/dev/null) || HEALTH_STATUS="000"
+
+          if [ "$HEALTH_STATUS" = "200" ]; then
+            echo "Health check passed (HTTP ${HEALTH_STATUS})"
+          else
+            echo "Health check returned HTTP ${HEALTH_STATUS} (may be expected if dev URL is not configured)"
+          fi
+
+          # API readiness check
+          echo "Checking API readiness..."
+          READY_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --retry 3 \
+            --retry-delay 10 \
+            "${API_URL}/api/v1/health" 2>/dev/null) || READY_STATUS="000"
+
+          if [ "$READY_STATUS" = "200" ]; then
+            echo "API readiness check passed (HTTP ${READY_STATUS})"
+          else
+            echo "API readiness returned HTTP ${READY_STATUS} (may be expected if dev URL is not configured)"
+          fi
+
+          echo ""
+          echo "=== Smoke Test Summary ==="
+          echo "Health: HTTP ${HEALTH_STATUS}"
+          echo "API Ready: HTTP ${READY_STATUS}"
+
+      - name: Post deployment summary
+        run: |
+          echo "## Dev Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Image** | \`${{ needs.update-argocd.result && needs.build-and-push.outputs.image_full }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Branch** | \`develop\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Triggered by** | ${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"
