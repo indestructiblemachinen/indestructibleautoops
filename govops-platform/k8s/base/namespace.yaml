@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: govops
+  labels:
+    app.kubernetes.io/part-of: govops-platform
+    app.kubernetes.io/managed-by: kubectl
+    governance.io/managed: "true"
+  annotations:
+    description: "GovOps Platform - Governance and Operations Management"
