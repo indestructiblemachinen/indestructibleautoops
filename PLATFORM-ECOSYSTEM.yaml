@@ -1,0 +1,171 @@
+# =============================================================================
+# IndestructibleAutoOps — Platform Ecosystem Registry
+# =============================================================================
+# Master registry of all microservice platforms in this monorepo.
+# Each platform is fully decoupled and can be independently extracted.
+#
+# Extraction target: https://github.com/indestructibleorg/indestructibleeco/tree/main/platforms
+# =============================================================================
+
+apiVersion: gl.ecosystem.v1
+kind: PlatformEcosystem
+metadata:
+  name: indestructible-ecosystem
+  version: "1.0.0"
+  created: "2026-02-21T00:00:00Z"
+  owner: IndestructibleAutoOps
+  description: |
+    Three decoupled microservice platforms coexisting in a monorepo,
+    designed for independent extraction and deployment.
+
+spec:
+  # ===========================================================================
+  # Architecture Principles
+  # ===========================================================================
+  principles:
+    - name: "Complete Decoupling"
+      description: "Zero cross-platform dependencies — each platform owns its data and APIs"
+    - name: "Standalone Extraction"
+      description: "Any platform can be extracted to an independent repository at any time"
+    - name: "API Boundary"
+      description: "Platforms communicate only through well-defined API contracts, never shared code"
+    - name: "Data Ownership"
+      description: "Each platform has exclusive ownership of its database and storage"
+    - name: "Independent Deployment"
+      description: "Each platform can be deployed, scaled, and upgraded independently"
+    - name: "Consistent Structure"
+      description: "All platforms follow the same directory layout and governance patterns"
+
+  # ===========================================================================
+  # Platform Registry
+  # ===========================================================================
+  platforms:
+    # -------------------------------------------------------------------------
+    # Platform 1: SuperAI
+    # -------------------------------------------------------------------------
+    superai-platform:
+      glName: "gl.ai.superai-platform"
+      displayName: "Super AI Operations Platform"
+      path: "superai-platform/"
+      status: active
+      language: python
+      description: "Cloud-native AI operations with quantum computing, ML pipelines, vector databases, and scientific computing"
+      ports:
+        api: 8090
+        metrics: 9090
+      infrastructure:
+        database: postgresql-16
+        cache: redis-7
+        search: elasticsearch-8
+        queue: rabbitmq-3
+        monitoring: prometheus
+        tracing: jaeger
+      namespace: superai
+      extraction_target: "platforms/superai-platform"
+
+    # -------------------------------------------------------------------------
+    # Platform 2: GovOps
+    # -------------------------------------------------------------------------
+    govops-platform:
+      glName: "gl.gov.ops-platform"
+      displayName: "Governance Operations Platform"
+      path: "govops-platform/"
+      status: active
+      language: python
+      description: "Governance workflow orchestration with module scanning, ETL pipelines, evidence hashing, and policy enforcement"
+      ports:
+        api: 8091
+        metrics: 9091
+      infrastructure:
+        database: postgresql-16
+        cache: redis-7
+        monitoring: prometheus
+      namespace: govops
+      extraction_target: "platforms/govops-platform"
+
+    # -------------------------------------------------------------------------
+    # Platform 3: SecCompOps
+    # -------------------------------------------------------------------------
+    seccompops-platform:
+      glName: "gl.sec-ops.compliance-platform"
+      displayName: "Security & Compliance Operations Platform"
+      path: "seccompops-platform/"
+      status: active
+      language: python
+      description: "Zero-tolerance enforcement, hallucination detection, browser operator security, evidence chain governance, and immutable audit"
+      ports:
+        api: 8095
+        metrics: 9095
+      infrastructure:
+        database: postgresql-16
+        cache: redis-7
+        monitoring: prometheus
+      namespace: seccompops
+      extraction_target: "platforms/seccompops-platform"
+
+  # ===========================================================================
+  # Port Allocation — no conflicts between platforms
+  # ===========================================================================
+  portAllocation:
+    superai:
+      api: 8090
+      metrics: 9090
+      postgres: 5432
+      redis: 6379
+      elasticsearch: 9200
+      rabbitmq: 5672
+    govops:
+      api: 8091
+      metrics: 9091
+      postgres: 5433
+      redis: 6380
+    seccompops:
+      api: 8095
+      metrics: 9095
+      postgres: 5434
+      redis: 6381
+
+  # ===========================================================================
+  # Extraction Workflow
+  # ===========================================================================
+  extraction:
+    target_repository: "https://github.com/indestructibleorg/indestructibleeco"
+    target_branch: "main"
+    target_structure: |
+      indestructibleeco/
+      └── platforms/
+          ├── superai-platform/     ← Extracted from monorepo
+          ├── govops-platform/      ← Extracted from monorepo
+          └── seccompops-platform/  ← Extracted from monorepo
+
+    steps:
+      - "Verify no cross-platform imports in source"
+      - "Copy platform directory to target"
+      - "Run platform tests independently"
+      - "Build Docker image independently"
+      - "Deploy to Kubernetes namespace independently"
+
+  # ===========================================================================
+  # Isolation Validation Rules
+  # ===========================================================================
+  isolation_rules:
+    - rule: "no_cross_platform_imports"
+      check: "grep -r 'from superai\\|from govops\\|from seccompops' <platform>/src/"
+      expected: "no matches"
+      severity: CRITICAL
+
+    - rule: "no_shared_database"
+      check: "Each platform uses its own PostgreSQL database"
+      severity: CRITICAL
+
+    - rule: "no_shared_redis"
+      check: "Each platform uses its own Redis instance or separate DB number"
+      severity: HIGH
+
+    - rule: "no_port_conflicts"
+      check: "Each platform uses unique API and metrics ports"
+      severity: CRITICAL
+
+    - rule: "independent_kubernetes_namespace"
+      check: "Each platform deploys to its own K8s namespace"
+      severity: HIGH

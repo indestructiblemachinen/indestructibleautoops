@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: seccompops
+  labels:
+    app.kubernetes.io/name: seccompops-platform
+    app.kubernetes.io/part-of: indestructible-eco
+    platform.gl/name: gl.sec-ops.compliance-platform

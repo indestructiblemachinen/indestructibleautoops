@@ -1,0 +1,69 @@
+# =============================================================================
+# SuperAI Platform — External Dependencies Declaration
+# =============================================================================
+# CRITICAL: This platform has ZERO cross-platform dependencies.
+apiVersion: gl.platform.v1
+kind: DependencyManifest
+metadata:
+  name: superai-platform-dependencies
+  version: "1.0.0"
+
+spec:
+  cross_platform_dependencies: []  # NONE — fully decoupled
+
+  external_dependencies:
+    runtime:
+      - name: python
+        version: ">=3.11"
+        type: language_runtime
+
+      - name: postgresql
+        version: ">=16"
+        type: database
+        purpose: "Core data persistence, AI model metadata"
+
+      - name: redis
+        version: ">=7"
+        type: cache
+        purpose: "Task queue, session cache"
+
+      - name: elasticsearch
+        version: ">=8.12"
+        type: search
+        purpose: "Full-text search, vector similarity"
+
+      - name: rabbitmq
+        version: ">=3.13"
+        type: message_queue
+        purpose: "Celery task distribution"
+
+    python_packages:
+      core:
+        - fastapi
+        - uvicorn
+        - pydantic
+        - sqlalchemy
+        - asyncpg
+        - redis
+        - celery
+        - elasticsearch
+      ai:
+        - tensorflow
+        - torch
+        - transformers
+        - langchain
+        - openai
+        - chromadb
+        - pinecone
+        - faiss-cpu
+      quantum:
+        - qiskit
+        - qiskit-aer
+        - qiskit-ibm-runtime
+      scientific:
+        - numpy
+        - pandas
+        - scipy
+        - scikit-learn
+        - statsmodels
+        - sympy

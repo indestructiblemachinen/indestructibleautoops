@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seccompops-config
+  namespace: seccompops
+data:
+  SECCOMPOPS_ENV: "production"
+  SECCOMPOPS_LOG_LEVEL: "INFO"
+  SECCOMPOPS_LOG_FORMAT: "json"
+  SECCOMPOPS_DB_HOST: "seccompops-postgres"
+  SECCOMPOPS_DB_PORT: "5432"
+  SECCOMPOPS_DB_NAME: "seccompops"
+  SECCOMPOPS_REDIS_URL: "redis://seccompops-redis:6379/0"
+  SECCOMPOPS_ENFORCEMENT_MODE: "strict"
+  SECCOMPOPS_AUDIT_MODE: "continuous"
