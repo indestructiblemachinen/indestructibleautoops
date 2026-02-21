@@ -63,6 +63,8 @@ seccompops = "presentation.api.main:run"
 seccompops-enforcer = "engines.zero_tolerance.engine:main"
 seccompops-detector = "engines.hallucination_detection.detector:main"
 seccompops-audit = "engines.browser_enforcement.engine:main"
+seccompops-pqc = "engines.post_quantum_hsm.engine:main"
+seccompops-policy = "engines.browser_policy.engine:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
