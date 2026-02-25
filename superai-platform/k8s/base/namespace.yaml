@@ -4,7 +4,9 @@ metadata:
   name: superai
   labels:
     app.kubernetes.io/name: superai-platform
-    app.kubernetes.io/part-of: superai
+    app.kubernetes.io/part-of: indestructible-eco
     app.kubernetes.io/managed-by: kustomize
+    platform.gl/name: gl.ai.superai-platform
+    governance.io/managed: "true"
   annotations:
     description: "SuperAI Platform — Quantum-AI Hybrid Cloud-Native Platform"

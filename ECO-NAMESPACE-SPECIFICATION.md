@@ -49,11 +49,11 @@
 
 | 平台前綴 (Platform Prefix) | 全稱 (Full Name) | K8s 命名空間 (Namespace) | API 端口 (Port) |
 |---|---|---|---|
-| `superai-` | Super AI Operations Platform | `superai` | 8090 |
-| `govops-` | Governance Operations Platform | `govops` | 8091 |
+| `superai-` | Super AI Operations Platform | `superai` | 8000 |
+| `govops-` | Governance Operations Platform | `govops` | 8090 |
 | `seccompops-` | Security & Compliance Operations Platform | `seccompops` | 8095 |
-| `dataops-` | Data Operations Platform | `dataops` | 8092 |
-| `observops-` | Observability Operations Platform | `observops` | 8093 |
+| `dataops-` | Data Operations Platform | `dataops` | 8093 |
+| `observops-` | Observability Operations Platform | `observops` | -- |
 
 ### 2.4. 資源命名模式 (Resource Naming Pattern)
 
@@ -201,15 +201,15 @@ GL_<SUBSYSTEM>_<SETTING>               # 治理引擎變數
 
 ### 5.2. 前綴對照表 (Prefix Mapping)
 
-| 前綴 | 適用範圍 | 範例 |
-|---|---|---|
-| `ECO_` | 平台級通用配置 | `ECO_LOG_LEVEL`, `ECO_DEPLOY_MODE` |
-| `SUPERAI_` | SuperAI 平台 | `SUPERAI_API_PORT`, `SUPERAI_DB_HOST` |
-| `GOVOPS_` | GovOps 平台 | `GOVOPS_API_PORT`, `GOVOPS_DB_HOST` |
-| `SECCOMPOPS_` | SecCompOps 平台 | `SECCOMPOPS_API_PORT`, `SECCOMPOPS_DB_HOST` |
-| `DATAOPS_` | DataOps 平台 | `DATAOPS_API_PORT`, `DATAOPS_DB_HOST` |
-| `OBSERVOPS_` | ObservOps 平台 | `OBSERVOPS_API_PORT`, `OBSERVOPS_DB_HOST` |
-| `GL_` | 治理引擎 | `GL_ENGINE_LOG_LEVEL`, `GL_ENGINE_LOG_DIR` |
+| 前綴 | 適用範圍 | 實施狀態 | 範例 |
+|---|---|---|---|
+| `ECO_` | 平台級通用配置 | 規劃中 | `ECO_LOG_LEVEL`, `ECO_DEPLOY_MODE` |
+| `SUPERAI_` | SuperAI 平台 | **待遷移** (現用 `APP_*`, `DATABASE_*`) | `SUPERAI_API_PORT`, `SUPERAI_DB_HOST` |
+| `GOVOPS_` | GovOps 平台 | 已實施 | `GOVOPS_ENV`, `GOVOPS_DB_HOST` |
+| `SECCOMPOPS_` | SecCompOps 平台 | 已實施 | `SECCOMPOPS_ENV`, `SECCOMPOPS_DB_HOST` |
+| `DATAOPS_` | DataOps 平台 | 已實施 | `DATAOPS_ENV`, `DATAOPS_DB_HOST` |
+| `OBSERVOPS_` | ObservOps 平台 | 規劃中 | `OBSERVOPS_API_PORT`, `OBSERVOPS_DB_HOST` |
+| `GL_` | 治理引擎 | 已實施 | `GL_ENGINE_LOG_LEVEL`, `GL_ENGINE_LOG_DIR` |
 
 ### 5.3. 通用環境變數 (Common Variables)
 
@@ -278,20 +278,36 @@ GL_<SUBSYSTEM>_<SETTING>               # 治理引擎變數
 
 ## 7. 平台端口分配 (Platform Port Allocation)
 
-所有平台的端口分配須全局唯一，避免衝突：
+所有平台的端口分配須全局唯一，避免衝突。
+
+### 7.1. 核心引擎 (Core Engine)
+
+| 服務 | Host Port | 說明 |
+|---|---|---|
+| `gov-engine` | 8080 | 根層治理引擎 (root docker-compose) |
+| `gov-postgres` | 5432 | 根層 PostgreSQL |
+| `gov-redis` | 6379 | 根層 Redis |
+| `gov-prometheus` | 9090 | 根層 Prometheus |
+
+### 7.2. 平台端口矩陣 (Platform Port Matrix)
+
+以下為各平台 `docker-compose.yaml` 中的**實際**端口映射：
 
 | 平台 | API Port | Metrics Port | PostgreSQL Port | Redis Port |
 |---|---|---|---|---|
-| `superai` | 8090 | 9090 | 5432 | 6379 |
-| `govops` | 8091 | 9091 | 5433 | 6380 |
-| `dataops` | 8092 | 9092 | 5434 | 6381 |
-| `observops` | 8093 | 9093 | 5435 | 6382 |
-| `seccompops` | 8095 | 9095 | 5436 | 6383 |
+| `superai` | 8000 | 9090 (via `$PROMETHEUS_PORT`) | 5432 (via `$POSTGRES_PORT`) | 6379 (via `$REDIS_PORT`) |
+| `govops` | 8090 | 9090 | 5432 | 6379 |
+| `dataops` | 8093 | 9094 | 5435 | 6382 |
+| `seccompops` | 8095 | 9092 | 5434 | 6381 |
+| `observops` | -- | -- | -- | -- |
 
-端口範圍保留：
+> **注意**：`superai` 與 `govops` 的 PostgreSQL/Redis/Metrics 端口在獨立運行時使用相同默認值。
+> 多平台共存時須通過環境變數覆蓋以避免衝突。`superai` 支持 `$APP_PORT`、`$POSTGRES_PORT`、`$REDIS_PORT`、`$PROMETHEUS_PORT` 環境變數覆蓋。
 
-- **8090-8099**: 平台 API 服務
-- **9090-9099**: 平台 Metrics 服務
+### 7.3. 端口範圍保留 (Reserved Port Ranges)
+
+- **8000-8099**: 平台 API 服務
+- **9090-9099**: 平台 Metrics 服務（Prometheus）
 - **5432-5439**: 平台 PostgreSQL 實例
 - **6379-6389**: 平台 Redis 實例
 

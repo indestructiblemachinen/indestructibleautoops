@@ -5,4 +5,8 @@ metadata:
   labels:
     app.kubernetes.io/name: seccompops-platform
     app.kubernetes.io/part-of: indestructible-eco
+    app.kubernetes.io/managed-by: kubectl
     platform.gl/name: gl.sec-ops.compliance-platform
+    governance.io/managed: "true"
+  annotations:
+    description: "SecCompOps Platform — Security & Compliance Operations"

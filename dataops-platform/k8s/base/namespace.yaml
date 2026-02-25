@@ -5,4 +5,8 @@ metadata:
   labels:
     app.kubernetes.io/name: dataops-platform
     app.kubernetes.io/part-of: indestructible-eco
+    app.kubernetes.io/managed-by: kubectl
     platform.gl/name: gl.data-ops.evidence-platform
+    governance.io/managed: "true"
+  annotations:
+    description: "DataOps Platform — Data Operations & Evidence Management"

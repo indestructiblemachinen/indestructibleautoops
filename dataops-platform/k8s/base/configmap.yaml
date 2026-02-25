@@ -3,6 +3,11 @@ kind: ConfigMap
 metadata:
   name: dataops-config
   namespace: dataops
+  labels:
+    app.kubernetes.io/name: dataops-platform
+    app.kubernetes.io/part-of: indestructible-eco
+    app.kubernetes.io/component: config
+    governance.io/managed: "true"
 data:
   DATAOPS_ENV: "production"
   DATAOPS_LOG_LEVEL: "INFO"

@@ -3,6 +3,11 @@ kind: ConfigMap
 metadata:
   name: seccompops-config
   namespace: seccompops
+  labels:
+    app.kubernetes.io/name: seccompops-platform
+    app.kubernetes.io/part-of: indestructible-eco
+    app.kubernetes.io/component: config
+    governance.io/managed: "true"
 data:
   SECCOMPOPS_ENV: "production"
   SECCOMPOPS_LOG_LEVEL: "INFO"

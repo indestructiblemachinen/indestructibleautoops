@@ -51,7 +51,7 @@ spec:
       language: python
       description: "Cloud-native AI operations with quantum computing, ML pipelines, vector databases, and scientific computing"
       ports:
-        api: 8090
+        api: 8000    # via $APP_PORT, default 8000
         metrics: 9090
       infrastructure:
         database: postgresql-16
@@ -74,8 +74,8 @@ spec:
       language: python
       description: "Governance workflow orchestration with module scanning, ETL pipelines, evidence hashing, and policy enforcement"
       ports:
-        api: 8091
-        metrics: 9091
+        api: 8090
+        metrics: 9090
       infrastructure:
         database: postgresql-16
         cache: redis-7
@@ -95,7 +95,7 @@ spec:
       description: "Zero-tolerance enforcement, hallucination detection, browser operator security, evidence chain governance, and immutable audit"
       ports:
         api: 8095
-        metrics: 9095
+        metrics: 9092
       infrastructure:
         database: postgresql-16
         cache: redis-7
@@ -108,20 +108,25 @@ spec:
   # ===========================================================================
   portAllocation:
     superai:
+      api: 8000       # via $APP_PORT, default 8000
+      metrics: 9090    # via $PROMETHEUS_PORT
+      postgres: 5432   # via $POSTGRES_PORT
+      redis: 6379      # via $REDIS_PORT
+      elasticsearch: 9200
+      rabbitmq: 5672
+    govops:
       api: 8090
       metrics: 9090
       postgres: 5432
       redis: 6379
-      elasticsearch: 9200
-      rabbitmq: 5672
-    govops:
-      api: 8091
-      metrics: 9091
-      postgres: 5433
-      redis: 6380
+    dataops:
+      api: 8093
+      metrics: 9094
+      postgres: 5435
+      redis: 6382
     seccompops:
       api: 8095
-      metrics: 9095
+      metrics: 9092
       postgres: 5434
       redis: 6381
 

@@ -3,6 +3,11 @@ kind: HorizontalPodAutoscaler
 metadata:
   name: dataops-engine-hpa
   namespace: dataops
+  labels:
+    app.kubernetes.io/name: dataops-platform
+    app.kubernetes.io/part-of: indestructible-eco
+    app.kubernetes.io/component: engine
+    governance.io/managed: "true"
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

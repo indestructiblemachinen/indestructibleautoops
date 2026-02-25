@@ -3,6 +3,11 @@ kind: HorizontalPodAutoscaler
 metadata:
   name: seccompops-engine-hpa
   namespace: seccompops
+  labels:
+    app.kubernetes.io/name: seccompops-platform
+    app.kubernetes.io/part-of: indestructible-eco
+    app.kubernetes.io/component: engine
+    governance.io/managed: "true"
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

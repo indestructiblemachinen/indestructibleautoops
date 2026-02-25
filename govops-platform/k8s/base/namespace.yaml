@@ -3,8 +3,10 @@ kind: Namespace
 metadata:
   name: govops
   labels:
-    app.kubernetes.io/part-of: govops-platform
+    app.kubernetes.io/name: govops-platform
+    app.kubernetes.io/part-of: indestructible-eco
     app.kubernetes.io/managed-by: kubectl
+    platform.gl/name: gl.gov.ops-platform
     governance.io/managed: "true"
   annotations:
-    description: "GovOps Platform - Governance and Operations Management"
+    description: "GovOps Platform — Governance and Operations Management"
