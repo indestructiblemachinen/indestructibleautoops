@@ -150,7 +150,7 @@ class RunQMLUseCase:
     ) -> dict[str, Any]:
         from src.quantum.algorithms.qml import QMLClassifier
         classifier = QMLClassifier()
-        result = await classifier.train_and_predict(
+        result = await classifier.classify(
             training_data=training_data,
             training_labels=training_labels,
             test_data=test_data or [],

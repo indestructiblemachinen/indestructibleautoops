@@ -163,7 +163,7 @@ class TestUser:
             role=UserRole.DEVELOPER,
         )
         assert user.username == "testuser"
-        assert user.status == UserStatus.ACTIVE
+        assert user.status == UserStatus.PENDING_VERIFICATION
 
     def test_suspend_user(self):
         email = Email.create("test@example.com")

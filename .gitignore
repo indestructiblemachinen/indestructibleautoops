@@ -159,7 +159,11 @@ kubeconfig/
 # ============================================================================
 # AI & API KEYS
 # ============================================================================
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+.claude/hooks/*
+!.claude/hooks/session-start.sh
 claude-api-key.txt
 anthropic-key.txt
 .openai/

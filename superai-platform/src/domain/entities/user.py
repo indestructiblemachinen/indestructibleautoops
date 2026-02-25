@@ -93,15 +93,18 @@ class User(AggregateRoot):
         return v
 
     @classmethod
-    def create(cls, username: str, email: str, hashed_password: str, full_name: str = "", role: UserRole = UserRole.VIEWER) -> User:
+    def create(cls, username: str, email: Any, hashed_password: Any, full_name: str = "", role: UserRole = UserRole.VIEWER) -> User:
+        # Accept both raw strings and value objects (Email / HashedPassword)
+        email_str = email.value if hasattr(email, "value") else email
+        pwd_str = hashed_password.value if hasattr(hashed_password, "value") else hashed_password
         user = cls(
             username=username,
-            email=Email(value=email),
-            hashed_password=HashedPassword(value=hashed_password),
+            email=Email(value=email_str),
+            hashed_password=HashedPassword(value=pwd_str),
             full_name=full_name,
             role=role,
         )
-        user.raise_event(UserCreated(aggregate_id=user.id, payload={"username": username, "email": email, "role": role.value}))
+        user.raise_event(UserCreated(aggregate_id=user.id, payload={"username": username, "email": email_str, "role": role.value}))
         return user
 
     def activate(self) -> None:

@@ -125,6 +125,7 @@ def mock_enforcer(mock_enforcement_result: MagicMock) -> AsyncMock:
     """Enforcer that returns the fake enforcement result."""
     rule = MagicMock()
     rule.auto_fix = True
+    rule.apply_fix = AsyncMock()
 
     enforcer = AsyncMock()
     enforcer.enforce = AsyncMock(return_value=mock_enforcement_result)
@@ -745,3 +746,204 @@ class TestEdgeCases:
         phase_names = [p.phase for p in result.phases]
         assert CyclePhase.ENFORCE in phase_names
         assert CyclePhase.REMEDIATE not in phase_names
+
+
+# ===================================================================
+# Evidence chain tests
+# ===================================================================
+
+
+class TestEvidenceChain:
+    """Test evidence chain hash generation and integrity."""
+
+    @pytest.mark.asyncio
+    async def test_completed_workflow_has_evidence_hash(self) -> None:
+        wf = AnalysisWorkflow(WorkflowConfig(name="evidence-test"))
+        result = await wf.run()
+
+        assert result.evidence_chain_hash != ""
+        assert len(result.evidence_chain_hash) == 64  # SHA-256 hex
+
+    @pytest.mark.asyncio
+    async def test_evidence_hash_changes_with_more_phases(self) -> None:
+        """A full-phase workflow should produce a different hash than a basic one."""
+        basic = AnalysisWorkflow(WorkflowConfig(name="basic"))
+        basic_result = await basic.run()
+
+        config = WorkflowConfig(name="full", auto_enforce=True)
+        enforcer = AsyncMock()
+        result_mock = MagicMock()
+        result_mock.enforcement_id = "E-1"
+        result_mock.total_rules = 1
+        result_mock.passed_rules = [MagicMock()]
+        result_mock.violations = []
+        result_mock.skipped_rules = []
+        result_mock.gate_blocked = False
+        result_mock.enforcement_actions = []
+        enforcer.enforce = AsyncMock(return_value=result_mock)
+
+        full = AnalysisWorkflow(config)
+        full_result = await full.run(enforcer=enforcer)
+
+        assert basic_result.evidence_chain_hash != full_result.evidence_chain_hash
+
+    @pytest.mark.asyncio
+    async def test_evidence_hashes_accumulated_per_transition(self) -> None:
+        wf = AnalysisWorkflow(WorkflowConfig(name="hashes"))
+        await wf.run()
+        # Basic run: PENDING→SCANNING→ANALYSING→REPORTING→COMPLETED = 4 transitions
+        assert len(wf._evidence_hashes) == 4
+
+    @pytest.mark.asyncio
+    async def test_failed_workflow_still_has_evidence(self) -> None:
+        failing_scanner = AsyncMock()
+        failing_scanner.scan_all = AsyncMock(side_effect=RuntimeError("fail"))
+
+        wf = AnalysisWorkflow(WorkflowConfig(name="fail-evidence"))
+        result = await wf.run(scanner=failing_scanner)
+
+        assert result.state == WorkflowState.FAILED
+        # PENDING→SCANNING = 1 transition recorded before failure
+        assert len(wf._evidence_hashes) >= 1
+        assert result.evidence_chain_hash != ""
+
+
+# ===================================================================
+# Timeout enforcement tests
+# ===================================================================
+
+
+class TestTimeoutEnforcement:
+    """Test max_duration_seconds timeout enforcement."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_results_in_failed_state(self) -> None:
+        """A workflow that exceeds max_duration_seconds should fail."""
+        config = WorkflowConfig(name="slow-cycle", max_duration_seconds=60)
+
+        slow_scanner = AsyncMock()
+
+        async def slow_scan():
+            await asyncio.sleep(120)  # way longer than timeout
+            return MagicMock()
+
+        slow_scanner.scan_all = slow_scan
+
+        wf = AnalysisWorkflow(config)
+        # Use a very short timeout for testing
+        wf._config = WorkflowConfig(
+            name="slow-cycle",
+            max_duration_seconds=60,
+        )
+        # Monkey-patch config for fast test
+        object.__setattr__(wf._config, "max_duration_seconds", 0.1)
+
+        result = await wf.run(scanner=slow_scanner)
+        assert result.state == WorkflowState.FAILED
+        assert result.completed_at is not None
+
+    @pytest.mark.asyncio
+    async def test_normal_workflow_does_not_timeout(self) -> None:
+        """A fast workflow should complete normally even with timeout."""
+        config = WorkflowConfig(name="fast-cycle", max_duration_seconds=60)
+        wf = AnalysisWorkflow(config)
+        result = await wf.run()
+
+        assert result.state == WorkflowState.COMPLETED
+
+
+# ===================================================================
+# Remediation tracking tests
+# ===================================================================
+
+
+class TestRemediationTracking:
+    """Test remediation phase tracks attempted vs applied vs failed."""
+
+    @pytest.mark.asyncio
+    async def test_successful_remediations(self) -> None:
+        config = WorkflowConfig(name="remed", auto_enforce=True, auto_remediate=True)
+
+        rule_ok = MagicMock()
+        rule_ok.auto_fix = True
+        rule_ok.apply_fix = AsyncMock()
+
+        enforcer = AsyncMock()
+        enf_result = MagicMock()
+        enf_result.enforcement_id = "E-1"
+        enf_result.total_rules = 2
+        enf_result.passed_rules = [MagicMock()]
+        enf_result.violations = [MagicMock()]
+        enf_result.skipped_rules = []
+        enf_result.gate_blocked = False
+        enf_result.enforcement_actions = []
+        enforcer.enforce = AsyncMock(return_value=enf_result)
+        enforcer.rules = [rule_ok, rule_ok]
+
+        wf = AnalysisWorkflow(config)
+        result = await wf.run(enforcer=enforcer)
+
+        remediate_phase = next(p for p in result.phases if p.phase == CyclePhase.REMEDIATE)
+        assert remediate_phase.output["remediations_attempted"] == 2
+        assert remediate_phase.output["remediations_applied"] == 2
+        assert remediate_phase.output["remediations_failed"] == 0
+
+    @pytest.mark.asyncio
+    async def test_failed_remediations_tracked(self) -> None:
+        config = WorkflowConfig(name="remed-fail", auto_enforce=True, auto_remediate=True)
+
+        rule_fail = MagicMock()
+        rule_fail.auto_fix = True
+        rule_fail.apply_fix = AsyncMock(side_effect=RuntimeError("cannot fix"))
+
+        rule_ok = MagicMock()
+        rule_ok.auto_fix = True
+        rule_ok.apply_fix = AsyncMock()
+
+        enforcer = AsyncMock()
+        enf_result = MagicMock()
+        enf_result.enforcement_id = "E-2"
+        enf_result.total_rules = 2
+        enf_result.passed_rules = []
+        enf_result.violations = [MagicMock(), MagicMock()]
+        enf_result.skipped_rules = []
+        enf_result.gate_blocked = False
+        enf_result.enforcement_actions = []
+        enforcer.enforce = AsyncMock(return_value=enf_result)
+        enforcer.rules = [rule_fail, rule_ok]
+
+        wf = AnalysisWorkflow(config)
+        result = await wf.run(enforcer=enforcer)
+
+        remediate_phase = next(p for p in result.phases if p.phase == CyclePhase.REMEDIATE)
+        assert remediate_phase.output["remediations_attempted"] == 2
+        assert remediate_phase.output["remediations_applied"] == 1
+        assert remediate_phase.output["remediations_failed"] == 1
+
+    @pytest.mark.asyncio
+    async def test_rules_without_apply_fix_still_count(self) -> None:
+        """Rules with auto_fix=True but no apply_fix method should still be counted as applied."""
+        config = WorkflowConfig(name="remed-nomethod", auto_enforce=True, auto_remediate=True)
+
+        rule = MagicMock(spec=["auto_fix"])
+        rule.auto_fix = True
+
+        enforcer = AsyncMock()
+        enf_result = MagicMock()
+        enf_result.enforcement_id = "E-3"
+        enf_result.total_rules = 1
+        enf_result.passed_rules = []
+        enf_result.violations = [MagicMock()]
+        enf_result.skipped_rules = []
+        enf_result.gate_blocked = False
+        enf_result.enforcement_actions = []
+        enforcer.enforce = AsyncMock(return_value=enf_result)
+        enforcer.rules = [rule]
+
+        wf = AnalysisWorkflow(config)
+        result = await wf.run(enforcer=enforcer)
+
+        remediate_phase = next(p for p in result.phases if p.phase == CyclePhase.REMEDIATE)
+        assert remediate_phase.output["remediations_attempted"] == 1
+        assert remediate_phase.output["remediations_applied"] == 1
+        assert remediate_phase.output["remediations_failed"] == 0

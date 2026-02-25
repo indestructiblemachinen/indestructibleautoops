@@ -4,9 +4,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import bcrypt
 import structlog
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from src.domain.exceptions import (
     AuthenticationException,
@@ -18,8 +18,6 @@ from src.domain.value_objects.role import Permission, RolePermissions, UserRole
 
 logger = structlog.get_logger(__name__)
 
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 # --- Password Hashing ---
 
@@ -28,11 +26,16 @@ class PasswordHasher:
 
     @staticmethod
     def hash(plain: str) -> str:
-        return _pwd_context.hash(plain)
+        pwd_bytes = plain.encode("utf-8")
+        salt = bcrypt.gensalt()
+        return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
     @staticmethod
     def verify(plain: str, hashed: str) -> bool:
-        return _pwd_context.verify(plain, hashed)
+        try:
+            return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+        except (ValueError, TypeError):
+            return False
 
 
 # --- JWT Token Handler ---

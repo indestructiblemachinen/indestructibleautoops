@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 class QMLClassifier:
     """Hybrid quantum-classical classifier using parameterized quantum circuits."""
 
-    async def train_and_predict(self, training_data: list[list[float]], training_labels: list[int],
+    async def classify(self, training_data: list[list[float]], training_labels: list[int],
                                  test_data: list[list[float]], feature_map: str, ansatz: str, epochs: int) -> dict[str, Any]:
         start = time.perf_counter()
         job_id = str(uuid.uuid4())

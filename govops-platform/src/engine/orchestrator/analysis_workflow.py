@@ -14,6 +14,9 @@ Enforcer) and records structured evidence at every transition.
 """
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -265,7 +268,7 @@ class AnalysisWorkflow:
     # -- state transitions --------------------------------------------------
 
     def _transition(self, target: WorkflowState) -> None:
-        """Validate and perform a state transition."""
+        """Validate and perform a state transition, recording evidence."""
         allowed = _TRANSITIONS.get(self._state, frozenset())
         if target not in allowed:
             raise InvalidTransitionError(
@@ -274,6 +277,20 @@ class AnalysisWorkflow:
             )
         previous = self._state
         self._state = target
+        # Record evidence hash for the transition
+        evidence_payload = json.dumps(
+            {
+                "cycle_id": self._cycle_id,
+                "from": previous.value,
+                "to": target.value,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "parent_hash": self._evidence_hashes[-1] if self._evidence_hashes else "",
+            },
+            sort_keys=True,
+        )
+        self._evidence_hashes.append(
+            hashlib.sha256(evidence_payload.encode()).hexdigest()
+        )
         logger.info(
             "workflow_state_transition",
             cycle_id=self._cycle_id,
@@ -307,26 +324,20 @@ class AnalysisWorkflow:
         self._started_at = datetime.now(timezone.utc)
 
         try:
-            # Phase 1: Scan
-            await self._run_scan_phase(scanner)
-
-            # Phase 2: Analyse
-            await self._run_analysis_phase(analyzer)
-
-            # Phase 3: Enforce (optional)
-            if self._config.auto_enforce:
-                await self._run_enforcement_phase(enforcer)
-
-            # Phase 4: Remediate (optional)
-            if self._config.auto_remediate and self._enforcement_output.get("violations", 0) > 0:
-                await self._run_remediation_phase(enforcer)
-
-            # Phase 5: Report
-            await self._run_report_phase()
-
+            await asyncio.wait_for(
+                self._run_phases(scanner=scanner, analyzer=analyzer, enforcer=enforcer),
+                timeout=self._config.max_duration_seconds,
+            )
             # Terminal
             self._transition(WorkflowState.COMPLETED)
 
+        except asyncio.TimeoutError:
+            self._state = WorkflowState.FAILED
+            logger.error(
+                "workflow_timeout",
+                cycle_id=self._cycle_id,
+                max_duration=self._config.max_duration_seconds,
+            )
         except WorkflowCancelledError:
             self._state = WorkflowState.CANCELLED
             logger.warning("workflow_cancelled", cycle_id=self._cycle_id)
@@ -340,6 +351,31 @@ class AnalysisWorkflow:
 
         self._completed_at = datetime.now(timezone.utc)
         return self._build_result()
+
+    async def _run_phases(
+        self,
+        *,
+        scanner: Any = None,
+        analyzer: Any = None,
+        enforcer: Any = None,
+    ) -> None:
+        """Execute all workflow phases in sequence."""
+        # Phase 1: Scan
+        await self._run_scan_phase(scanner)
+
+        # Phase 2: Analyse
+        await self._run_analysis_phase(analyzer)
+
+        # Phase 3: Enforce (optional)
+        if self._config.auto_enforce:
+            await self._run_enforcement_phase(enforcer)
+
+        # Phase 4: Remediate (optional)
+        if self._config.auto_remediate and self._enforcement_output.get("violations", 0) > 0:
+            await self._run_remediation_phase(enforcer)
+
+        # Phase 5: Report
+        await self._run_report_phase()
 
     # -- phase runners ------------------------------------------------------
 
@@ -520,17 +556,30 @@ class AnalysisWorkflow:
         status = "completed"
 
         try:
+            remediations_attempted = 0
             remediations_applied = 0
+            remediations_failed = 0
 
             if enforcer is not None and hasattr(enforcer, "rules"):
                 for rule in enforcer.rules:
                     if rule.auto_fix:
-                        remediations_applied += 1
+                        remediations_attempted += 1
+                        try:
+                            if hasattr(rule, "apply_fix"):
+                                await rule.apply_fix()
+                            remediations_applied += 1
+                        except Exception as fix_exc:
+                            remediations_failed += 1
+                            logger.warning(
+                                "remediation_failed",
+                                cycle_id=self._cycle_id,
+                                error=str(fix_exc),
+                            )
 
             output = {
-                "remediations_attempted": remediations_applied,
+                "remediations_attempted": remediations_attempted,
                 "remediations_applied": remediations_applied,
-                "remediations_failed": 0,
+                "remediations_failed": remediations_failed,
             }
             self._remediation_output = output
 
@@ -640,6 +689,12 @@ class AnalysisWorkflow:
         remediation = self._remediation_output
         analysis = self._analysis_output
 
+        # Build final evidence chain hash from accumulated transition hashes
+        evidence_chain_hash = ""
+        if self._evidence_hashes:
+            chain_payload = json.dumps(self._evidence_hashes, sort_keys=True)
+            evidence_chain_hash = hashlib.sha256(chain_payload.encode()).hexdigest()
+
         return WorkflowResult(
             cycle_id=self._cycle_id,
             config=self._config,
@@ -657,6 +712,7 @@ class AnalysisWorkflow:
             remediations_applied=remediation.get("remediations_applied", 0),
             gate_blocked=enforcement.get("gate_blocked", False),
             compliance_rate=analysis.get("compliance_rate", 0.0),
+            evidence_chain_hash=evidence_chain_hash,
         )
 
 

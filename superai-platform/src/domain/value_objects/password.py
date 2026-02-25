@@ -12,26 +12,28 @@ class HashedPassword(ValueObject):
     @classmethod
     def from_plain(cls, plain: str) -> HashedPassword:
         cls._validate_strength(plain)
-        from passlib.context import CryptContext
-        ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-        return cls(value=ctx.hash(plain))
+        import bcrypt
+        pwd_bytes = plain.encode("utf-8")
+        return cls(value=bcrypt.hashpw(pwd_bytes, bcrypt.gensalt()).decode("utf-8"))
 
     @classmethod
     def from_hash(cls, hashed: str) -> HashedPassword:
         return cls(value=hashed)
 
     def verify(self, plain: str) -> bool:
-        from passlib.context import CryptContext
-        ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-        return ctx.verify(plain, self.value)
+        import bcrypt
+        try:
+            return bcrypt.checkpw(plain.encode("utf-8"), self.value.encode("utf-8"))
+        except (ValueError, TypeError):
+            return False
 
     @staticmethod
     def _validate_strength(plain: str) -> None:
         errors: list[str] = []
         if len(plain) < 8:
             errors.append("minimum 8 characters")
-        if len(plain) > 128:
-            errors.append("maximum 128 characters")
+        if len(plain.encode("utf-8")) > 72:
+            errors.append("maximum 72 bytes when UTF-8 encoded (bcrypt limit)")
         if not any(c.isupper() for c in plain):
             errors.append("at least one uppercase letter")
         if not any(c.islower() for c in plain):
