@@ -32,8 +32,24 @@ from datetime import datetime, timezone
 from collections import Counter
 
 # 添加 ecosystem 到路徑
-ECOSYSTEM_ROOT = Path(__file__).parent
+ECOSYSTEM_ROOT = Path(__file__).resolve().parent
 WORKSPACE_ROOT = ECOSYSTEM_ROOT.parent
+
+# 根目錄 ecosystem 僅包含入口時，回退到完整實作目錄
+CANONICAL_ECOSYSTEM_ROOT = (
+    WORKSPACE_ROOT
+    / "governance"
+    / "l3_execution"
+    / "boundaries"
+    / "namespace-governance-boundary"
+    / "implementation"
+    / "ecosystem"
+)
+
+if not (ECOSYSTEM_ROOT / "governance").exists() and CANONICAL_ECOSYSTEM_ROOT.exists():
+    ECOSYSTEM_ROOT = CANONICAL_ECOSYSTEM_ROOT
+    WORKSPACE_ROOT = ECOSYSTEM_ROOT.parent
+
 sys.path.insert(0, str(ECOSYSTEM_ROOT))
 
 
